@@ -12,7 +12,7 @@ import java.util.concurrent.TimeUnit;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
-final class PcProbe {
+final class PcProbe implements Probe {
     private static final int PORT = 47431;
     private static final int NONCE_BYTES = 32;
     private static final int MAC_BYTES = 32;
@@ -35,7 +35,8 @@ final class PcProbe {
         mac.init(new SecretKeySpec(key, "HmacSHA256"));
     }
 
-    boolean ping() throws IOException {
+    @Override
+    public boolean ping() throws IOException {
         byte[] nonce = new byte[NONCE_BYTES];
         random.nextBytes(nonce);
         byte[] expected = mac.doFinal(nonce);

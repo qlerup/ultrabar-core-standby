@@ -6,17 +6,20 @@ public final class PresenceTest {
     }
 
     public static void main(String[] args) {
+        if (Presence.INTERVAL_MS != 30_000) throw new AssertionError("Expected 30-second polling");
         Presence presence = new Presence();
-        expect(Presence.Event.NONE, presence.sample(false, 0));
-        expect(Presence.Event.NONE, presence.sample(false, 90_000));
-        expect(Presence.Event.CONNECTED, presence.sample(true, 100_000));
-        expect(Presence.Event.NONE, presence.sample(false, 119_999));
-        expect(Presence.Event.NONE, presence.sample(true, 120_000));
-        expect(Presence.Event.NONE, presence.sample(false, 139_999));
-        expect(Presence.Event.LOST, presence.sample(false, 140_000));
-        expect(Presence.Event.NONE, presence.sample(false, 150_000));
-        expect(Presence.Event.CONNECTED, presence.sample(true, 155_000));
-        expect(Presence.Event.LOST, presence.sample(false, 175_000));
+        for (int index = 0; index < 5; index++) {
+            expect(Presence.Event.NONE, presence.sample(false));
+        }
+        expect(Presence.Event.CONNECTED, presence.sample(true));
+        expect(Presence.Event.NONE, presence.sample(false));
+        expect(Presence.Event.NONE, presence.sample(false));
+        expect(Presence.Event.NONE, presence.sample(true));
+        expect(Presence.Event.NONE, presence.sample(false));
+        expect(Presence.Event.NONE, presence.sample(false));
+        expect(Presence.Event.LOST, presence.sample(false));
+        expect(Presence.Event.NONE, presence.sample(false));
+        expect(Presence.Event.CONNECTED, presence.sample(true));
         System.out.println("Presence tests passed");
     }
 }

@@ -41,6 +41,14 @@ public final class SetupActivity extends Activity {
         panel.addView(title);
         status = new TextView(this);
         panel.addView(status);
+        if (StudioProbe.config(this).isFile() || prefs.getString("ip", "").isEmpty()) {
+            button(panel, "Remove sleep permission", () -> {
+                StandbyService.pause(this);
+                getSystemService(DevicePolicyManager.class).removeActiveAdmin(SettingsState.admin(this));
+                refresh();
+            });
+            return;
+        }
         LinearLayout fields = row(panel);
         address = field(fields, "Windows PC IPv4 address", prefs.getString("ip", ""),
                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
@@ -115,6 +123,16 @@ public final class SetupActivity extends Activity {
 
     private void refresh() {
         boolean enabled = prefs.getBoolean("enabled", false);
+        if (address == null) {
+            if (!enabled) {
+                status.setText("Add PC Standby to your layout in UltraBar Studio and deploy to enable monitoring.");
+            } else {
+                status.setText(prefs.getBoolean("studioConnected", false)
+                        ? "Studio connected. Core will sleep when it stops responding."
+                        : "Waiting for UltraBar Studio.");
+            }
+            return;
+        }
         address.setEnabled(!enabled);
         code.setEnabled(!enabled);
         toggle.setText(enabled ? "Pause monitoring" : "Start monitoring");

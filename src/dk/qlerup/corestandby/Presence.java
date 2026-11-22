@@ -2,18 +2,19 @@ package dk.qlerup.corestandby;
 
 final class Presence {
     enum Event { NONE, CONNECTED, LOST }
-    private static final long LOSS_GRACE_MS = 20_000;
+    static final int INTERVAL_MS = 30_000;
+    private static final int MISSED_LIMIT = 3;
     private boolean connected;
-    private long lastReply;
+    private int missed;
 
-    Event sample(boolean reply, long now) {
+    Event sample(boolean reply) {
         if (reply) {
-            lastReply = now;
+            missed = 0;
             if (!connected) {
                 connected = true;
                 return Event.CONNECTED;
             }
-        } else if (connected && now - lastReply >= LOSS_GRACE_MS) {
+        } else if (connected && ++missed == MISSED_LIMIT) {
             connected = false;
             return Event.LOST;
         }
