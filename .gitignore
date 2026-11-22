@@ -1,0 +1,7 @@
+/build/
+/app.apk
+/source.zip
+/windows-companion.zip
+*.p12
+*.jks
+*.idsig
