@@ -6,8 +6,10 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.app.admin.DevicePolicyManager;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.IBinder;
@@ -26,6 +28,19 @@ public final class StandbyService extends Service {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Presence presence = new Presence();
+    private final BroadcastReceiver screenOn = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            SharedPreferences prefs = SettingsState.preferences(StandbyService.this);
+            if (!Intent.ACTION_SCREEN_ON.equals(intent.getAction()) || destroyed
+                    || !prefs.getBoolean("enabled", false)) return;
+            try {
+                sleepIfOffline(prefs);
+            } catch (SecurityException error) {
+                fail("Monitoring paused. Core denied a display operation.");
+            }
+        }
+    };
     private PowerManager power;
     private PowerManager.WakeLock cpu;
     private Probe probe;
@@ -46,6 +61,7 @@ public final class StandbyService extends Service {
                 CHANNEL, "PC Standby", NotificationManager.IMPORTANCE_LOW));
         startForeground(NOTIFICATION, notification("Waiting for the paired PC"));
         power = getSystemService(PowerManager.class);
+        registerReceiver(screenOn, new IntentFilter(Intent.ACTION_SCREEN_ON));
     }
 
     @Override
@@ -62,7 +78,7 @@ public final class StandbyService extends Service {
                         : new PcProbe(prefs.getString("ip", ""), prefs.getString("code", ""));
                 if (probe instanceof StudioProbe && prefs.getBoolean("studioConfirmed", false)) {
                     slept = prefs.getBoolean("studioSlept", false);
-                    if (!slept) presence.sample(true);
+                    presence.restore(prefs.getBoolean("studioConnected", false));
                 }
                 cpu = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "PCStandby:Monitor");
                 cpu.acquire();
@@ -91,7 +107,8 @@ public final class StandbyService extends Service {
     }
 
     private void update(boolean authenticated, long next) {
-        if (destroyed || !SettingsState.preferences(this).getBoolean("enabled", false)) return;
+        SharedPreferences prefs = SettingsState.preferences(this);
+        if (destroyed || !prefs.getBoolean("enabled", false)) return;
         if (!SettingsState.ready(this)) {
             fail("Monitoring paused. Restore the settings and device admin permissions.");
             return;
@@ -106,20 +123,15 @@ public final class StandbyService extends Service {
                     if (slept && !power.isInteractive()) wakeScreen();
                     slept = false;
                     if (probe instanceof StudioProbe) {
-                        SettingsState.preferences(this).edit().putBoolean("studioConnected", true)
+                        prefs.edit().putBoolean("studioConnected", true)
                                 .putBoolean("studioConfirmed", true).remove("studioSlept").commit();
                     }
                     notifications().notify(NOTIFICATION, notification(
                             probe instanceof StudioProbe ? "Studio connected" : "Paired PC connected"));
                     break;
                 case LOST:
-                    if (power.isInteractive()) {
-                        getSystemService(DevicePolicyManager.class).lockNow();
-                        slept = true;
-                    }
                     if (probe instanceof StudioProbe) {
-                        SettingsState.preferences(this).edit().putBoolean("studioConnected", false)
-                                .putBoolean("studioSlept", slept).commit();
+                        prefs.edit().putBoolean("studioConnected", false).commit();
                     }
                     notifications().notify(NOTIFICATION, notification(
                             probe instanceof StudioProbe ? "Studio unreachable" : "Paired PC unreachable"));
@@ -127,11 +139,21 @@ public final class StandbyService extends Service {
                 default:
                     break;
             }
+            sleepIfOffline(prefs);
         } catch (SecurityException error) {
             fail("Monitoring paused. Core denied a display operation.");
             return;
         }
         handler.postAtTime(this::poll, next);
+    }
+
+    private void sleepIfOffline(SharedPreferences prefs) {
+        if (!presence.shouldSleep(power.isInteractive())) return;
+        getSystemService(DevicePolicyManager.class).lockNow();
+        if (!slept && probe instanceof StudioProbe) {
+            prefs.edit().putBoolean("studioSlept", true).commit();
+        }
+        slept = true;
     }
 
     @SuppressWarnings("deprecation")
@@ -165,6 +187,7 @@ public final class StandbyService extends Service {
     @Override
     public void onDestroy() {
         destroyed = true;
+        unregisterReceiver(screenOn);
         handler.removeCallbacksAndMessages(null);
         worker.shutdownNow();
         if (cpu != null && cpu.isHeld()) cpu.release();
