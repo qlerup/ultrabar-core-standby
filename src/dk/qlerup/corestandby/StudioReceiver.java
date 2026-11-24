@@ -16,7 +16,7 @@ public final class StudioReceiver extends BroadcastReceiver {
                 if (!SettingsState.ready(context)) return;
                 if (!SettingsState.preferences(context).edit().putBoolean("enabled", true)
                         .putBoolean("studioConnected", false).putBoolean("studioConfirmed", false)
-                        .remove("studioSlept").commit()) return;
+                        .commit()) return;
                 context.startForegroundService(new Intent(context, StandbyService.class));
                 setResultCode(1);
             } catch (java.io.IOException | java.security.GeneralSecurityException error) {

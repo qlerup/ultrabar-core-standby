@@ -76,9 +76,11 @@ public final class StandbyService extends Service {
                 probe = StudioProbe.config(this).isFile()
                         ? new StudioProbe(this)
                         : new PcProbe(prefs.getString("ip", ""), prefs.getString("code", ""));
-                if (probe instanceof StudioProbe && prefs.getBoolean("studioConfirmed", false)) {
+                if (probe instanceof StudioProbe) {
                     slept = prefs.getBoolean("studioSlept", false);
-                    presence.restore(prefs.getBoolean("studioConnected", false));
+                    if (prefs.getBoolean("studioConfirmed", false)) {
+                        presence.restore(prefs.getBoolean("studioConnected", false));
+                    }
                 }
                 cpu = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "PCStandby:Monitor");
                 cpu.acquire();
@@ -120,11 +122,9 @@ public final class StandbyService extends Service {
             }
             switch (presence.sample(authenticated)) {
                 case CONNECTED:
-                    if (slept && !power.isInteractive()) wakeScreen();
-                    slept = false;
                     if (probe instanceof StudioProbe) {
                         prefs.edit().putBoolean("studioConnected", true)
-                                .putBoolean("studioConfirmed", true).remove("studioSlept").commit();
+                                .putBoolean("studioConfirmed", true).commit();
                     }
                     notifications().notify(NOTIFICATION, notification(
                             probe instanceof StudioProbe ? "Studio connected" : "Paired PC connected"));
@@ -139,6 +139,13 @@ public final class StandbyService extends Service {
                 default:
                     break;
             }
+            if (presence.shouldRestoreScreen(authenticated, slept)) {
+                if (!power.isInteractive()) wakeScreen();
+                if (power.isInteractive()) {
+                    slept = false;
+                    if (probe instanceof StudioProbe) prefs.edit().remove("studioSlept").commit();
+                }
+            }
             sleepIfOffline(prefs);
         } catch (SecurityException error) {
             fail("Monitoring paused. Core denied a display operation.");
@@ -149,11 +156,11 @@ public final class StandbyService extends Service {
 
     private void sleepIfOffline(SharedPreferences prefs) {
         if (!presence.shouldSleep(power.isInteractive())) return;
-        getSystemService(DevicePolicyManager.class).lockNow();
         if (!slept && probe instanceof StudioProbe) {
-            prefs.edit().putBoolean("studioSlept", true).commit();
+            if (!prefs.edit().putBoolean("studioSlept", true).commit()) return;
         }
         slept = true;
+        getSystemService(DevicePolicyManager.class).lockNow();
     }
 
     @SuppressWarnings("deprecation")

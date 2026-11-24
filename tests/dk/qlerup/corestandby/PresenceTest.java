@@ -43,6 +43,15 @@ public final class PresenceTest {
         restarted.restore(true);
         expect(Presence.Event.NONE, restarted.sample(false));
         expectSleep(false, restarted, true);
+        // Re-enabling monitoring requires a fresh reply, even when a wake is pending.
+        Presence reenabled = new Presence();
+        reenabled.sample(false);
+        if (reenabled.shouldRestoreScreen(false, true)) throw new AssertionError("Offline wake");
+        reenabled.sample(true);
+        if (!reenabled.shouldRestoreScreen(true, true)) throw new AssertionError("Lost pending wake");
+        expect(Presence.Event.NONE, reenabled.sample(true));
+        if (!reenabled.shouldRestoreScreen(true, true)) throw new AssertionError("No wake retry");
+        if (reenabled.shouldRestoreScreen(true, false)) throw new AssertionError("Unowned sleep");
         System.out.println("Presence tests passed");
     }
 }

@@ -17,6 +17,10 @@ final class Presence {
         return state == State.OFFLINE && interactive;
     }
 
+    boolean shouldRestoreScreen(boolean authenticated, boolean slept) {
+        return authenticated && slept && state == State.CONNECTED;
+    }
+
     Event sample(boolean reply) {
         if (reply) {
             missed = 0;
