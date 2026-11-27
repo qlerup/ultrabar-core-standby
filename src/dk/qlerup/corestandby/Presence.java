@@ -3,18 +3,14 @@ package dk.qlerup.corestandby;
 final class Presence {
     enum Event { NONE, CONNECTED, LOST }
     static final int INTERVAL_MS = 30_000;
+    static final int OFFLINE_VIEW_MS = 30_000;
     private static final int MISSED_LIMIT = 3;
     private enum State { WAITING, CONNECTED, OFFLINE }
     private State state = State.WAITING;
     private int missed;
 
-    void restore(boolean connected) {
-        state = connected ? State.CONNECTED : State.OFFLINE;
-        missed = 0;
-    }
-
-    boolean shouldSleep(boolean interactive) {
-        return state == State.OFFLINE && interactive;
+    boolean offline() {
+        return state == State.OFFLINE;
     }
 
     boolean shouldRestoreScreen(boolean authenticated, boolean slept) {

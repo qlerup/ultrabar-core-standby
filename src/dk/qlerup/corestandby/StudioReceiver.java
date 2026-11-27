@@ -15,7 +15,7 @@ public final class StudioReceiver extends BroadcastReceiver {
                 new StudioProbe(context);
                 if (!SettingsState.ready(context)) return;
                 if (!SettingsState.preferences(context).edit().putBoolean("enabled", true)
-                        .putBoolean("studioConnected", false).putBoolean("studioConfirmed", false)
+                        .putBoolean("studioConnected", false).remove("studioConfirmed")
                         .commit()) return;
                 context.startForegroundService(new Intent(context, StandbyService.class));
                 setResultCode(1);

@@ -28,16 +28,17 @@ public final class StandbyService extends Service {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Presence presence = new Presence();
+    private final Runnable sleepOffline = this::sleepIfOffline;
     private final BroadcastReceiver screenOn = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             SharedPreferences prefs = SettingsState.preferences(StandbyService.this);
             if (!Intent.ACTION_SCREEN_ON.equals(intent.getAction()) || destroyed
                     || !prefs.getBoolean("enabled", false)) return;
-            try {
-                sleepIfOffline(prefs);
-            } catch (SecurityException error) {
-                fail("Monitoring paused. Core denied a display operation.");
+            clearManagedSleep(prefs);
+            if (presence.offline()) {
+                handler.removeCallbacks(sleepOffline);
+                handler.postDelayed(sleepOffline, Presence.OFFLINE_VIEW_MS);
             }
         }
     };
@@ -73,14 +74,16 @@ public final class StandbyService extends Service {
         }
         if (probe == null) {
             try {
+                if (!SettingsState.restoreTimeout(this)) {
+                    fail("Monitoring paused. Core did not restore the screen timeout setting.");
+                    return START_NOT_STICKY;
+                }
                 probe = StudioProbe.config(this).isFile()
                         ? new StudioProbe(this)
                         : new PcProbe(prefs.getString("ip", ""), prefs.getString("code", ""));
                 if (probe instanceof StudioProbe) {
                     slept = prefs.getBoolean("studioSlept", false);
-                    if (prefs.getBoolean("studioConfirmed", false)) {
-                        presence.restore(prefs.getBoolean("studioConnected", false));
-                    }
+                    if (power.isInteractive()) clearManagedSleep(prefs);
                 }
                 cpu = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "PCStandby:Monitor");
                 cpu.acquire();
@@ -120,11 +123,12 @@ public final class StandbyService extends Service {
                 fail("Monitoring paused. Core did not accept the screen timeout setting.");
                 return;
             }
-            switch (presence.sample(authenticated)) {
+            Presence.Event event = presence.sample(authenticated);
+            switch (event) {
                 case CONNECTED:
+                    handler.removeCallbacks(sleepOffline);
                     if (probe instanceof StudioProbe) {
-                        prefs.edit().putBoolean("studioConnected", true)
-                                .putBoolean("studioConfirmed", true).commit();
+                        prefs.edit().putBoolean("studioConnected", true).commit();
                     }
                     notifications().notify(NOTIFICATION, notification(
                             probe instanceof StudioProbe ? "Studio connected" : "Paired PC connected"));
@@ -135,18 +139,15 @@ public final class StandbyService extends Service {
                     }
                     notifications().notify(NOTIFICATION, notification(
                             probe instanceof StudioProbe ? "Studio unreachable" : "Paired PC unreachable"));
+                    sleepIfOffline();
                     break;
                 default:
                     break;
             }
             if (presence.shouldRestoreScreen(authenticated, slept)) {
                 if (!power.isInteractive()) wakeScreen();
-                if (power.isInteractive()) {
-                    slept = false;
-                    if (probe instanceof StudioProbe) prefs.edit().remove("studioSlept").commit();
-                }
+                if (power.isInteractive()) clearManagedSleep(prefs);
             }
-            sleepIfOffline(prefs);
         } catch (SecurityException error) {
             fail("Monitoring paused. Core denied a display operation.");
             return;
@@ -154,13 +155,24 @@ public final class StandbyService extends Service {
         handler.postAtTime(this::poll, next);
     }
 
-    private void sleepIfOffline(SharedPreferences prefs) {
-        if (!presence.shouldSleep(power.isInteractive())) return;
-        if (!slept && probe instanceof StudioProbe) {
-            if (!prefs.edit().putBoolean("studioSlept", true).commit()) return;
+    private void sleepIfOffline() {
+        SharedPreferences prefs = SettingsState.preferences(this);
+        if (destroyed || !prefs.getBoolean("enabled", false)
+                || !presence.offline() || !power.isInteractive()) return;
+        try {
+            if (probe instanceof StudioProbe
+                    && !prefs.edit().putBoolean("studioSlept", true).commit()) return;
+            slept = true;
+            getSystemService(DevicePolicyManager.class).lockNow();
+        } catch (SecurityException error) {
+            fail("Monitoring paused. Core denied a display operation.");
         }
-        slept = true;
-        getSystemService(DevicePolicyManager.class).lockNow();
+    }
+
+    private void clearManagedSleep(SharedPreferences prefs) {
+        if (!slept) return;
+        slept = false;
+        if (probe instanceof StudioProbe) prefs.edit().remove("studioSlept").commit();
     }
 
     @SuppressWarnings("deprecation")
